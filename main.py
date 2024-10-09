@@ -1,12 +1,12 @@
 import time
+from typing import Union
 
 from google.protobuf.internal.wire_format import INT64_MAX
-from lxml.html import submit_form
 from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, WebDriverException, NoSuchElementException
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support.ui import WebDriverWait
 
 
 def attempt_login(driver, url, username, password, timeout=30):
@@ -108,7 +108,8 @@ def perform_login(driver, username, password):
         return False
 
 
-def automated_login(fitness_or_swimming, reserve_date,reserve_time, max_retries=INT64_MAX, retry_delay=3):
+def automated_login(fitness_or_swimming, reserve_date,reserve_time:list, max_retries=INT64_MAX,
+                    retry_delay=3):
     url = "https://cgyy.xmu.edu.cn/"  # 请替换为实际的登录页面URL
     username = "37220222203691"
     password = "mkbk.445566"
@@ -122,13 +123,13 @@ def automated_login(fitness_or_swimming, reserve_date,reserve_time, max_retries=
             "18:30-20:30": 3,
         },
         "fitness": {
-            "10:30-12:00": 1,
-            "12:00-13:30": 2,
-            "13:30-15:00": 3,
-            "15:00-16:30": 4,
-            "16:30-18:00": 5,
-            "18:00-19:30": 6,
-            "19:30-21:00": 7,
+            "10:30-12:00": 16,
+            "12:00-13:30": 10,
+            "13:30-15:00": 11,
+            "15:00-16:30": 12,
+            "16:30-18:00": 13,
+            "18:00-19:30": 14,
+            "19:30-21:00": 15,
         }
     }
 
@@ -137,7 +138,7 @@ def automated_login(fitness_or_swimming, reserve_date,reserve_time, max_retries=
     elif fitness_or_swimming == "健身":
         fitness_or_swimming = "fitness"
 
-    reserve_time = time_to_index[fitness_or_swimming][reserve_time]
+    reserve_time = [time_to_index[fitness_or_swimming][reserve_time[i]] for i in range(len(reserve_time))]
 
     for attempt in range(max_retries):
         print(f"执行第 {attempt + 1} 次尝试")
@@ -178,18 +179,50 @@ def automated_login(fitness_or_swimming, reserve_date,reserve_time, max_retries=
             else:
                 raise ValueError("fitness_or_swimming变量只能选择预约健身房(fitness)或预约游泳馆(swimming)")
 
+            reserve_done = False
+
             # 在这里添加预约操作的代码
             if fitness_or_swimming == "swimming":
-                time_period_url = "https://cgyy.xmu.edu.cn/room_apl/2/" + str(reserve_date) + "/" + str(reserve_time) + "/cg"
-                if not navigate_with_retry(driver, time_period_url, (By.XPATH, '/html/body'), 3, retry_delay):
-                    raise Exception("导航到游泳馆预约填写电话界面失败")
+                for current_reserve_time in reserve_time:
+                    time_period_url = "https://cgyy.xmu.edu.cn/room_apl/2/" + str(reserve_date) + "/" + str(
+                        current_reserve_time) + "/cg"
+                    if not navigate_with_retry(driver, time_period_url, (By.XPATH, '/html/body'), 1, retry_delay):
+                        raise Exception("导航到游泳馆预约填写电话界面失败")
 
-                input_phone_and_submit(driver)
+                    try:
+                        print(f"尝试预约游泳馆的{current_reserve_time}时间段")
+                        input_phone_and_submit(driver)
+                    except NoSuchElementException as e:
+                        print(f"{current_reserve_time}:{str(e)}")
+                        continue
+
+                    print(f"预约游泳馆的{current_reserve_time}时间段成功！")
+                    reserve_done = True
+                    break
             else:
-                pass # 健身房预约
+                for current_reserve_time in reserve_time:
+                    time_period_url = "https://cgyy.xmu.edu.cn/room_apl/1/" + str(reserve_date) + "/" + str(
+                        current_reserve_time) + "/cg"
+                    if not navigate_with_retry(driver, time_period_url, (By.XPATH, '/html/body'), 1, retry_delay):
+                        raise Exception("导航到健身房预约填写电话界面失败")
 
-            print("所有操作成功完成！")
-            return True
+                    try:
+                        print(f"尝试预约健身房的{current_reserve_time}时间段")
+                        input_phone_and_submit(driver)
+                    except NoSuchElementException as e:
+                        print(f"{current_reserve_time}:{str(e)}")
+                        continue
+
+                    print(f"预约健身房的{current_reserve_time}时间段成功！")
+                    reserve_done = True
+                    break
+
+            if reserve_done:
+                print("所有操作成功完成！")
+                return True
+            else:
+                print("所有时间段预约均失败。")
+                return False
 
         except Exception as e:
             print(f"执行过程中出现错误: {e}")
@@ -222,20 +255,22 @@ def input_phone_and_submit(driver, phone_number="17704675461"):
         submit_button = driver.find_element(By.XPATH, '//*[@id="edit-submit"]')
         submit_button.click()
 
-        return False  # 操作成功完成，返回False表示不需要进一步处理
+        return True  # 操作成功完成，返回False表示不需要进一步处理
 
     except NoSuchElementException:
-        print("未找到电话号码输入框或提交按钮，请检查所选时间段是否已被约满/未开放/已经预约成功。")
-        return True
+        raise NoSuchElementException("未找到电话号码输入框或提交按钮，请检查所选时间段是否已被约满/未开放/已经预约成功。")
 
     except Exception as e:
-        print(f"发生错误: {str(e)}")
-        return True
+        raise Exception(f"发生错误: {str(e)}")
 
 if __name__ == "__main__":
 
-    fitness_or_swimming = "swimming"
-    reserve_date = "2024-10-08"
-    reserve_time = "09:30-11:00"
+    # fitness_or_swimming = "swimming"
+    # reserve_date = "2024-10-08"
+    # reserve_time = ["09:30-11:00"]
+
+    fitness_or_swimming = "fitness"
+    reserve_date = "2024-10-12"
+    reserve_time = ["10:30-12:00","12:00-13:30","13:30-15:00","15:00-16:30"]
 
     automated_login(fitness_or_swimming,reserve_date, reserve_time)
