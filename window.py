@@ -7,7 +7,8 @@ from datetime import datetime
 
 from PyQt6.QtCore import QDate, QTime
 from PyQt6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QPushButton, QComboBox,
-                             QCalendarWidget, QLabel, QHBoxLayout, QTimeEdit, QMessageBox, QDateEdit, QCheckBox)
+                             QCalendarWidget, QLabel, QHBoxLayout, QTimeEdit, QMessageBox, QDateEdit, QCheckBox,
+                             QLineEdit)
 
 from main import automated_login
 
@@ -39,6 +40,25 @@ class ReservationInterface(QWidget):
 
         # 读取上次的设置
         settings = self.load_settings()
+
+        # 学号输入
+        student_id_layout = QHBoxLayout()
+        student_id_layout.addWidget(QLabel("学号:"))
+        self.student_id_input = QLineEdit()
+        if 'student_id' in settings:
+            self.student_id_input.setText(settings['student_id'])
+        student_id_layout.addWidget(self.student_id_input)
+        layout.addLayout(student_id_layout)
+
+        # 密码输入
+        password_layout = QHBoxLayout()
+        password_layout.addWidget(QLabel("密码:"))
+        self.password_input = QLineEdit()
+        self.password_input.setEchoMode(QLineEdit.EchoMode.Password)
+        if 'password' in settings:
+            self.password_input.setText(settings['password'])
+        password_layout.addWidget(self.password_input)
+        layout.addLayout(password_layout)
 
         # 日历控件
         self.calendar = QCalendarWidget()
@@ -132,6 +152,8 @@ class ReservationInterface(QWidget):
     def save_settings(self):
         """保存设置到文件"""
         settings = {
+            'student_id': self.student_id_input.text(),
+            'password': self.password_input.text(),
             'selected_date': self.calendar.selectedDate().toString("yyyy-MM-dd"),
             'activity': self.activity_combo.currentText(),
             'primary_slot': self.primary_time_slot.currentText(),
@@ -207,14 +229,20 @@ class ReservationInterface(QWidget):
 
     def confirm_selection(self):
         """确认选择并开始预约任务"""
+        student_id = self.student_id_input.text()
+        password = self.password_input.text()
+
+        if not student_id or not password:
+            self.show_error_message("信息不完整", "请输入学号和密码。")
+            return
+
         selected_date = self.calendar.selectedDate().toString("yyyy-MM-dd")
         selected_activity = self.activity_combo.currentText()
         primary_time_slot = self.primary_time_slot.currentText()
-
         alternative_slots = [slot.currentText() for slot in self.alternative_slots if slot.currentText()]
         all_slots = [primary_time_slot] + alternative_slots
-
         result = {
+            "student_id": student_id,
             "date": selected_date,
             "activity": selected_activity,
             "time_slots": all_slots
@@ -226,31 +254,28 @@ class ReservationInterface(QWidget):
             start_time = self.start_time_edit.time().toPyTime()
             start_datetime = datetime.combine(start_date, start_time)
             current_datetime = datetime.now()
-
             if start_datetime <= current_datetime:
                 self.show_error_message("预约时间错误",
-                    f"预约开始时间 {start_datetime.strftime('%Y-%m-%d %H:%M')} 不能早于当前时间：{current_datetime.strftime('%Y-%m-%d %H:%M')}")
+                                        f"预约开始时间 {start_datetime.strftime('%Y-%m-%d %H:%M')} 不能早于当前时间：{current_datetime.strftime('%Y-%m-%d %H:%M')}")
                 return
-
             reservation_date = QDate.fromString(selected_date, "yyyy-MM-dd").toPyDate()
             if reservation_date < start_date:
                 self.show_error_message("预约日期错误",
-                    f"预约日期 {selected_date} 不能早于预约开始时间的日期：{start_date.strftime('%Y-%m-%d')}")
+                                        f"预约日期 {selected_date} 不能早于预约开始时间的日期：{start_date.strftime('%Y-%m-%d')}")
                 return
-
             wait_seconds = (start_datetime - current_datetime).total_seconds()
             print(f"系统将在 {start_datetime.strftime('%Y-%m-%d %H:%M:%S')} 开始自动预约，请保持程序运行。")
-
             # 创建并启动定时线程
             timer_thread = threading.Thread(target=self.timed_execution,
-                                            args=(wait_seconds, selected_activity, selected_date, all_slots))
+                                            args=(wait_seconds, student_id, password, selected_activity, selected_date,
+                                                  all_slots))
             timer_thread.start()
         else:
             print("立即开始预约...")
             immediate_thread = threading.Thread(target=self.immediate_execution,
-                                                args=(selected_activity, selected_date, all_slots))
+                                                args=(
+                                                student_id, password, selected_activity, selected_date, all_slots))
             immediate_thread.start()
-
         self.save_settings()
         self.close()
 
@@ -263,7 +288,7 @@ class ReservationInterface(QWidget):
         error_msg.setWindowTitle("错误")
         error_msg.exec()
 
-    def timed_execution(self, wait_seconds, activity, date, slots):
+    def timed_execution(self, wait_seconds,student_id,password, activity, date, slots):
         """
         定时执行预约任务
 
@@ -275,13 +300,13 @@ class ReservationInterface(QWidget):
         """
         time.sleep(wait_seconds)
         print("开始执行预约...")
-        automated_login(activity, date, slots)
+        automated_login(student_id, password, activity, date, slots)
 
-    def immediate_execution(self, activity, date, slots):
+    def immediate_execution(self,student_id, password, activity, date, slots):
         """立即执行预约任务"""
         print(f"立即执行预约: 活动 - {activity}, 日期 - {date}, 时间段 - {slots}")
         # 这里调用 automated_login 或其他预约逻辑
-        automated_login(activity, date, slots)
+        automated_login(student_id, password, activity, date, slots)
 
 
 def main():

@@ -108,12 +108,11 @@ def perform_login(driver, username, password):
         return False
 
 
-def automated_login(fitness_or_swimming, reserve_date,reserve_time:list, max_retries=INT64_MAX,
+def automated_login(student_id, password, fitness_or_swimming, reserve_date,reserve_time:list, max_retries=INT64_MAX,
                     retry_delay=3):
     url = "https://cgyy.xmu.edu.cn/"  # 请替换为实际的登录页面URL
-    username = "37220222203691"
-    password = "mkbk.445566"
-    # fitness的时间对应需要修改
+    username = student_id
+
     time_to_index = {
         "swimming": {
             "09:30-11:00": 5,
@@ -222,7 +221,6 @@ def automated_login(fitness_or_swimming, reserve_date,reserve_time:list, max_ret
                 return True
             else:
                 print("所有时间段预约均失败。")
-                return False
 
         except Exception as e:
             print(f"执行过程中出现错误: {e}")
