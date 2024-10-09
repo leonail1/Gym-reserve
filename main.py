@@ -22,7 +22,7 @@ def attempt_login(driver, url, username, password, timeout=30):
         # 检查是否已经登录
         try:
             expected_text = "本系统仅供在校师生使用，不得在体育场馆进行其他无关的活动。"
-            WebDriverWait(driver, 5).until(
+            WebDriverWait(driver, 2).until(
                 EC.text_to_be_present_in_element((By.XPATH, '//*[@id="block-block-1"]/p[1]'), expected_text)
             )
             print("已经处于登录状态，检测到预期文本内容。")
