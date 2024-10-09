@@ -1,18 +1,35 @@
 import time
 from typing import Union
 
-from google.protobuf.internal.wire_format import INT64_MAX
 from selenium import webdriver
 from selenium.common.exceptions import TimeoutException, WebDriverException, NoSuchElementException
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import WebDriverWait
+from selenium.common.exceptions import TimeoutException, WebDriverException, NoSuchWindowException
 
 
 def attempt_login(driver, url, username, password, timeout=30):
     try:
         # 访问登录页面
         driver.get(url)
+
+        # 首先等待 body 元素加载完成
+        WebDriverWait(driver, timeout).until(
+            EC.presence_of_element_located((By.TAG_NAME, 'body'))
+        )
+
+        # 检查是否已经登录
+        try:
+            expected_text = "本系统仅供在校师生使用，不得在体育场馆进行其他无关的活动。"
+            WebDriverWait(driver, 5).until(
+                EC.text_to_be_present_in_element((By.XPATH, '//*[@id="block-block-1"]/p[1]'), expected_text)
+            )
+            print("已经处于登录状态，检测到预期文本内容。")
+            return True
+        except TimeoutException:
+            # 如果没有检测到预期文本，则继续登录流程
+            pass
 
         # 等待并填写用户名
         username_input = WebDriverWait(driver, timeout).until(
@@ -33,7 +50,6 @@ def attempt_login(driver, url, username, password, timeout=30):
         login_button.click()
 
         # 等待特定文本内容出现，表示页面加载完成
-        expected_text = "本系统仅供在校师生使用，不得在体育场馆进行其他无关的活动。"
         WebDriverWait(driver, timeout).until(
             EC.text_to_be_present_in_element((By.XPATH, '//*[@id="block-block-1"]/p[1]'), expected_text)
         )
@@ -43,9 +59,11 @@ def attempt_login(driver, url, username, password, timeout=30):
     except TimeoutException:
         print("登录失败或页面加载超时。")
         return False
-    except Exception as e:
-        print(f"登录过程中出现错误: {e}")
-        return False
+
+
+class BrowserClosedException(Exception):
+    """自定义异常，表示浏览器已被关闭"""
+    pass
 
 
 def navigate_with_retry(driver, url, wait_element, max_retries=3, retry_delay=5):
@@ -66,10 +84,11 @@ def navigate_with_retry(driver, url, wait_element, max_retries=3, retry_delay=5)
                 print("未检测到特定元素，将重试。")
                 raise Exception("未检测到特定元素")
 
+        except NoSuchWindowException:
+            print("浏览器窗口已被关闭。")
+            raise BrowserClosedException("浏览器窗口已被关闭")
         except TimeoutException:
             print(f"页面加载超时 (尝试 {retry_count}/{max_retries})")
-        except WebDriverException as e:
-            print(f"打开页面时出错 (尝试 {retry_count}/{max_retries}): {e}")
         except Exception as e:
             print(f"发生其他错误 (尝试 {retry_count}/{max_retries}): {e}")
 
@@ -103,12 +122,22 @@ def perform_login(driver, username, password):
 
         print("登录操作完成")
         return True
+
+    except NoSuchWindowException:
+        print("浏览器窗口已被关闭。")
+        raise BrowserClosedException("浏览器窗口已被关闭")
+
+    except TimeoutException:
+        print("等待元素超时")
+        return False
+
     except Exception as e:
-        print(f"登录过程中出错: {e}")
+        print(f"登录过程中出现其他错误: {e}")
         return False
 
 
-def automated_login(student_id, password, fitness_or_swimming, reserve_date,reserve_time:list, max_retries=INT64_MAX,
+def automated_login(student_id, password, fitness_or_swimming, reserve_date, reserve_time: list,
+                    max_retries=(2 << 63) - 1,
                     retry_delay=3):
     url = "https://cgyy.xmu.edu.cn/"  # 请替换为实际的登录页面URL
     username = student_id
@@ -161,7 +190,8 @@ def automated_login(student_id, password, fitness_or_swimming, reserve_date,rese
                 raise Exception("导航到厦大账号企业微信登录页面失败")
             print("成功导航到厦大账号企业微信登录页面")
 
-            if not navigate_with_retry(driver, username_password_url, (By.XPATH, '//*[@id="username"]'), 3, retry_delay):
+            if not navigate_with_retry(driver, username_password_url, (By.XPATH, '//*[@id="username"]'), 3,
+                                       retry_delay):
                 raise Exception("导航到厦大账号账密登录页面失败")
             print("成功导航到厦大账号账密登录页面")
 
@@ -170,10 +200,12 @@ def automated_login(student_id, password, fitness_or_swimming, reserve_date,rese
             print("厦大账号登录操作成功完成")
 
             if fitness_or_swimming == "fitness":
-                if not navigate_with_retry(driver, reserve_fitness_url, (By.XPATH, '//*[@id="page-title"]'), 3, retry_delay):
+                if not navigate_with_retry(driver, reserve_fitness_url, (By.XPATH, '//*[@id="page-title"]'), 3,
+                                           retry_delay):
                     raise Exception("导航到健身房预约页面失败")
             elif fitness_or_swimming == "swimming":
-                if not navigate_with_retry(driver, reserve_swimming_url, (By.XPATH, '//*[@id="page-title"]'), 3, retry_delay):
+                if not navigate_with_retry(driver, reserve_swimming_url, (By.XPATH, '//*[@id="page-title"]'), 3,
+                                           retry_delay):
                     raise Exception("导航到游泳馆预约页面失败")
             else:
                 raise ValueError("fitness_or_swimming变量只能选择预约健身房(fitness)或预约游泳馆(swimming)")
@@ -183,8 +215,7 @@ def automated_login(student_id, password, fitness_or_swimming, reserve_date,rese
             # 在这里添加预约操作的代码
             if fitness_or_swimming == "swimming":
                 for current_reserve_time in reserve_time:
-                    time_period_url = "https://cgyy.xmu.edu.cn/room_apl/2/" + str(reserve_date) + "/" + str(
-                        current_reserve_time) + "/cg"
+                    time_period_url = f"https://cgyy.xmu.edu.cn/room_apl/2/{reserve_date}/{current_reserve_time}/cg"
                     if not navigate_with_retry(driver, time_period_url, (By.XPATH, '/html/body'), 1, retry_delay):
                         raise Exception("导航到游泳馆预约填写电话界面失败")
 
@@ -200,8 +231,7 @@ def automated_login(student_id, password, fitness_or_swimming, reserve_date,rese
                     break
             else:
                 for current_reserve_time in reserve_time:
-                    time_period_url = "https://cgyy.xmu.edu.cn/room_apl/1/" + str(reserve_date) + "/" + str(
-                        current_reserve_time) + "/cg"
+                    time_period_url = f"https://cgyy.xmu.edu.cn/room_apl/1/{reserve_date}/{current_reserve_time}/cg"
                     if not navigate_with_retry(driver, time_period_url, (By.XPATH, '/html/body'), 1, retry_delay):
                         raise Exception("导航到健身房预约填写电话界面失败")
 
@@ -224,6 +254,10 @@ def automated_login(student_id, password, fitness_or_swimming, reserve_date,rese
 
         except Exception as e:
             print(f"执行过程中出现错误: {e}")
+            if isinstance(e, NoSuchWindowException) or isinstance(e, BrowserClosedException):
+                print("浏览器被手动关闭，程序终止")
+                return False
+
             if attempt < max_retries - 1:
                 print(f"等待 {retry_delay} 秒后重试...")
                 time.sleep(retry_delay)
@@ -232,7 +266,10 @@ def automated_login(student_id, password, fitness_or_swimming, reserve_date,rese
 
         finally:
             if driver:
-                driver.quit()
+                try:
+                    driver.quit()
+                except Exception:
+                    pass  # 忽略关闭驱动程序时可能出现的错误
 
     return False
 
@@ -258,17 +295,14 @@ def input_phone_and_submit(driver, phone_number="17704675461"):
     except NoSuchElementException:
         raise NoSuchElementException("未找到电话号码输入框或提交按钮，请检查所选时间段是否已被约满/未开放/已经预约成功。")
 
-    except Exception as e:
-        raise Exception(f"发生错误: {str(e)}")
 
 if __name__ == "__main__":
-
     # fitness_or_swimming = "swimming"
     # reserve_date = "2024-10-08"
     # reserve_time = ["09:30-11:00"]
 
     fitness_or_swimming = "fitness"
     reserve_date = "2024-10-12"
-    reserve_time = ["10:30-12:00","12:00-13:30","13:30-15:00","15:00-16:30"]
+    reserve_time = ["10:30-12:00", "12:00-13:30", "13:30-15:00", "15:00-16:30"]
 
-    automated_login(fitness_or_swimming,reserve_date, reserve_time)
+    automated_login("37220222203691", "mkbk.445566", fitness_or_swimming, reserve_date, reserve_time)
